@@ -19,7 +19,7 @@ The app sends an `x-user-id` header. Change `EXPO_PUBLIC_DEMO_USER_ID` to test a
 ## Assumptions and decisions
 
 - Registration is free to reserve in this demo; a production checkout should call the registration endpoint only after a payment provider confirms payment.
-- Capacity is guarded by a MongoDB transaction and a conditional update, so parallel registrations cannot oversubscribe the competition.
+- Capacity is guarded by an atomic MongoDB conditional update, so parallel registrations cannot oversubscribe the competition without requiring a replica set locally.
 - Dates are stored in UTC and all lifecycle decisions are made by the server. The app only renders the server-provided state.
 - The included seed content is intentional demo data; the UI never hardcodes competition facts.
 
