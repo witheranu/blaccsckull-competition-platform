@@ -1,0 +1,16 @@
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const { Competition, Registration, Submission } = require('./models');
+const app = express(); app.use(cors()); app.use(express.json());
+const userId = req => req.header('x-user-id') || 'demo-participant';
+const lifecycle = c => { const now = new Date(); if (now > c.resultAt) return 'completed'; if (now > c.submissionEndsAt) return 'judging'; if (now >= c.submissionStartsAt) return 'submission_open'; if (now > c.registrationClosesAt) return 'registration_closed'; return 'registration_open'; };
+const serialize = async (c, uid) => ({ ...c.toObject(), lifecycle: lifecycle(c), spotsLeft: Math.max(0, c.capacity - c.bookedCount), registration: c.registeredUserIds.includes(uid) ? { userId: uid, status: 'registered' } : null, submission: await Submission.findOne({ competition: c._id, userId: uid }).lean() });
+
+app.get('/api/health', (_, res) => res.json({ ok: true }));
+app.get('/api/competitions/:slug', async (req, res, next) => { try { const c = await Competition.findOne({ slug: req.params.slug }); if (!c) return res.status(404).json({ message: 'Competition not found.' }); res.json(await serialize(c, userId(req))); } catch (e) { next(e); } });
+app.post('/api/competitions/:id/register', async (req, res, next) => { try { const c = await Competition.findById(req.params.id); if (!c) return res.status(404).json({ message: 'Competition not found.' }); if (lifecycle(c) !== 'registration_open') return res.status(409).json({ message: 'Registration is no longer open.' }); const uid = userId(req); const reserved = await Competition.findOneAndUpdate({ _id: c._id, registeredUserIds: { $ne: uid }, $expr: { $lt: ['$bookedCount', '$capacity'] } }, { $addToSet: { registeredUserIds: uid }, $inc: { bookedCount: 1 } }, { new: true }); if (!reserved) { const current = await Competition.findById(c._id); if (current.registeredUserIds.includes(uid)) return res.status(200).json(await serialize(current, uid)); return res.status(409).json({ message: 'All places have been taken.' }); } await Registration.updateOne({ competition: c._id, userId: uid }, { $setOnInsert: { status: 'registered' } }, { upsert: true }); res.status(201).json(await serialize(reserved, uid)); } catch (e) { next(e); } });
+app.post('/api/competitions/:id/submissions', async (req, res, next) => { try { const c = await Competition.findById(req.params.id); if (!c) return res.status(404).json({ message: 'Competition not found.' }); if (lifecycle(c) !== 'submission_open') return res.status(409).json({ message: 'The submission window is not open.' }); if (!c.registeredUserIds.includes(userId(req))) return res.status(403).json({ message: 'Register before uploading a submission.' }); const submission = await Submission.findOneAndUpdate({ competition: c._id, userId: userId(req) }, { mediaUrl: req.body.mediaUrl }, { upsert: true, new: true }); res.status(201).json(submission); } catch (e) { next(e); } });
+app.use((err, _, res, __) => res.status(err.status || 500).json({ message: err.message || 'Unexpected server error.' }));
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/arenahub').then(() => app.listen(process.env.PORT || 4000, () => console.log('ArenaHub API ready'))).catch(e => { console.error(e); process.exit(1); });

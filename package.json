@@ -1,0 +1,10 @@
+{
+  "name": "arenahub-competition-module",
+  "private": true,
+  "workspaces": ["server", "mobile"],
+  "scripts": {
+    "server": "npm --workspace server run dev",
+    "mobile": "npm --workspace mobile start",
+    "seed": "npm --workspace server run seed"
+  }
+}
